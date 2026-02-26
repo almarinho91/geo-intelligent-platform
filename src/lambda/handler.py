@@ -1,10 +1,11 @@
 import boto3
+import os
 
 s3 = boto3.client("s3")
 
-BUCKET = "andre-geo-platform-dev"   # <-- change if your bucket name differs
-INPUT_KEY = "raw/test_ais.csv"
-OUTPUT_KEY = "curated/test_ais_processed.csv"
+BUCKET = os.environ["BUCKET_NAME"]
+INPUT_KEY = os.environ["INPUT_KEY"]
+OUTPUT_KEY = os.environ["OUTPUT_KEY"]
 
 
 def lambda_handler(event, context):
