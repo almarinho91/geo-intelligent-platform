@@ -1,0 +1,14 @@
+# Runbook v1 — S3 → Lambda → S3 (Raw to Curated)
+
+## What this does
+Reads `raw/test_ais.csv` from S3, adds a derived column (`speed_category`), and writes the result to `curated/test_ais_processed.csv`.
+
+## AWS resources (manual, v1)
+- S3 bucket: `andre-geo-platform-dev`
+- Lambda function: `geo-platform-s3-test`
+- IAM: Lambda execution role with S3 + CloudWatch logs permissions
+
+## How to run
+1. Upload `test_ais.csv` to `s3://andre-geo-platform-dev/raw/test_ais.csv`
+2. Run the Lambda test event `test1`
+3. Verify output at `s3://andre-geo-platform-dev/curated/test_ais_processed.csv`
