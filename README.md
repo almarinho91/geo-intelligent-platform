@@ -1,14 +1,38 @@
 # Geo-Intelligent Mobility Analytics Platform (AWS)
 
-Learning project: build an end-to-end cloud data pipeline on AWS for trajectory data (AIS),
-covering ingestion, data lake modeling, ETL, analytics, and batch ML.
+An end-to-end serverless data pipeline on AWS for trajectory data processing and analytics.
 
-## Planned architecture (v1)
-- S3 (raw/curated/features/predictions)
-- Lambda ingestion + basic processing
-- Glue + Athena (later)
-- SageMaker training + batch inference (later)
-- Dashboard (later)
+## Current Architecture (Week 1)
 
-## Status
-- Week 1: project scaffolding + Lambda skeleton
+**Ingestion Layer**
+- Amazon S3 (raw zone)
+- AWS Lambda (event-driven processing)
+
+**Storage**
+- Data Lake structure:
+  - raw/
+  - curated/
+
+**Analytics**
+- Amazon Athena (SQL on S3)
+
+## What Is Implemented
+
+- Event-driven S3 → Lambda transformation
+- Automated processing from raw/ to curated/
+- External table in Athena
+- Analytical SQL queries
+
+## Example Flow
+
+1. Upload CSV to `raw/`
+2. Lambda processes file automatically
+3. Output written to `curated/`
+4. Query curated data using Athena
+
+## Next Steps
+
+- Convert CSV → Parquet
+- Introduce partitioning
+- Add feature engineering layer
+- Add ML training pipeline
