@@ -12,6 +12,7 @@ An end-to-end serverless data pipeline on AWS for trajectory data processing and
 - Data Lake structure:
   - raw/
   - curated/
+  - curated_parquet/
 
 **Analytics**
 - Amazon Athena (SQL on S3)
@@ -22,6 +23,8 @@ An end-to-end serverless data pipeline on AWS for trajectory data processing and
 - Automated processing from raw/ to curated/
 - External table in Athena
 - Analytical SQL queries
+- Conversion from CSV to Parquet using Athena (CTAS)
+- Columnar storage for improved performance and cost efficiency
 
 ## Example Flow
 
@@ -32,7 +35,6 @@ An end-to-end serverless data pipeline on AWS for trajectory data processing and
 
 ## Next Steps
 
-- Convert CSV → Parquet
 - Introduce partitioning
 - Add feature engineering layer
 - Add ML training pipeline
