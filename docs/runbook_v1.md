@@ -12,3 +12,10 @@ Reads `raw/test_ais.csv` from S3, adds a derived column (`speed_category`), and 
 1. Upload `test_ais.csv` to `s3://andre-geo-platform-dev/raw/test_ais.csv`
 2. Run the Lambda test event `test1`
 3. Verify output at `s3://andre-geo-platform-dev/curated/test_ais_processed.csv`
+
+## Event-driven mode (v2)
+An S3 trigger is configured so that any `.csv` uploaded to `raw/` automatically triggers the Lambda and writes a processed file to `curated/`.
+
+Example:
+- Upload: `raw/test_ais_2.csv`
+- Output: `curated/test_ais_2_processed.csv`

@@ -2,18 +2,29 @@ import boto3
 import os
 
 s3 = boto3.client("s3")
-
 BUCKET = os.environ["BUCKET_NAME"]
-INPUT_KEY = os.environ["INPUT_KEY"]
-OUTPUT_KEY = os.environ["OUTPUT_KEY"]
 
 
 def lambda_handler(event, context):
-    # 1) Read input file from S3
-    obj = s3.get_object(Bucket=BUCKET, Key=INPUT_KEY)
+    # If this wasn't triggered by S3, return a helpful message
+    if "Records" not in event:
+        return {
+            "statusCode": 200,
+            "body": "No S3 event records found. Upload a .csv to s3://<bucket>/raw/ to trigger this function."
+        }
+
+    record = event["Records"][0]
+    key = record["s3"]["object"]["key"]  # e.g. raw/test_ais.csv
+
+    # Only process files in raw/
+    if not key.startswith("raw/"):
+        return {"statusCode": 200, "body": f"Skipped non-raw key: {key}"}
+
+    # Read input file from S3
+    obj = s3.get_object(Bucket=BUCKET, Key=key)
     raw_text = obj["Body"].read().decode("utf-8")
 
-    # 2) Very small "processing": add a new column speed_category
+    # Process: add a speed_category column
     lines = raw_text.strip().splitlines()
     header = lines[0] + ",speed_category"
     out_lines = [header]
@@ -33,15 +44,20 @@ def lambda_handler(event, context):
 
     out_text = "\n".join(out_lines) + "\n"
 
-    # 3) Write output to S3 (curated zone)
+    # Build output key: curated/<filename>_processed.csv
+    filename = key.split("/")[-1]  # test_ais.csv
+    base = filename.rsplit(".", 1)[0]
+    output_key = f"curated/{base}_processed.csv"
+
+    # Write output
     s3.put_object(
         Bucket=BUCKET,
-        Key=OUTPUT_KEY,
+        Key=output_key,
         Body=out_text.encode("utf-8"),
         ContentType="text/csv",
     )
 
     return {
         "statusCode": 200,
-        "body": f"Wrote s3://{BUCKET}/{OUTPUT_KEY} with {len(out_lines)-1} rows",
+        "body": f"Read s3://{BUCKET}/{key} and wrote s3://{BUCKET}/{output_key}",
     }
