@@ -19,3 +19,9 @@ An S3 trigger is configured so that any `.csv` uploaded to `raw/` automatically 
 Example:
 - Upload: `raw/test_ais_2.csv`
 - Output: `curated/test_ais_2_processed.csv`
+
+## Athena setup
+
+1. Run sql/00_create_schema.sql
+2. Select database geo_platform
+3. Run analysis queries from sql/
