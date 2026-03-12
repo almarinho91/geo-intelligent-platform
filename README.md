@@ -1,36 +1,44 @@
 
 # AIS Maritime Data Platform (AWS)
 
-This project demonstrates the design and implementation of a cloud-based data platform for maritime AIS (Automatic Identification System) data using AWS services.
-It covers the full pipeline from raw data ingestion to analytics-ready datasets optimized for large-scale querying.
+This project demonstrates the design of a hybrid Data Engineering + Data Science pipeline for maritime AIS (Automatic Identification System) data using AWS services.
 
-The system processes real AIS vessel trajectory data (~800 MB CSV) and transforms it into partitioned Parquet datasets that can be efficiently queried with SQL.
+The system ingests raw vessel trajectory data, builds a scalable data lake, performs analytics, detects anomalies, and derives vessel behavioral clusters.
+
+The dataset processed in this project contains ~800 MB of AIS messages representing over 16,000 vessels and millions of trajectory points.
 
 ---
 
 ## Architecture Overview
 
-AIS CSV dataset
+AIS CSV Dataset
 ↓
-Amazon S3 (raw_ais/)
+Amazon S3 (Data Lake)
 ↓
 Athena External Table (schema-on-read)
 ↓
-Athena CTAS transformation (CSV → Parquet)
+CTAS Transformation (CSV → Parquet)
 ↓
-Partitioned dataset (dt_hour)
+Hourly Partitioned Dataset
 ↓
-Analytics Layer (analytics_vessel_hourly)
+Analytics Layer (vessel traffic metrics)
+↓
+Feature Engineering (vessel_behavior_features)
+↓
+Anomaly Detection
+↓
+Vessel Behavior Clustering
 
 ---
 
 ## Technologies Used
 
 - Amazon S3 — Data lake storage
-- Amazon Athena — Serverless SQL query engine
-- AWS Glue / Spark — Batch data processing (optional ETL layer)
-- AWS Lambda — Event-driven ingestion (demo pipeline)
-- Parquet — Columnar storage for efficient analytics
+- Amazon Athena — Serverless SQL analytics
+- AWS Glue / Spark — Optional ETL processing
+- AWS Lambda — Event-driven ingestion demo
+- Parquet — Columnar storage format
+- SQL (Athena) — Feature engineering and analytics
 
 ---
 
@@ -38,210 +46,179 @@ Analytics Layer (analytics_vessel_hourly)
 
 andre-geo-platform-dev/
 
-raw/ — small demo CSV files  
-curated/ — Lambda processed data  
-curated_parquet/ — Athena CTAS output  
-glue_output/ — Spark output  
-glue_output_partitioned/ — Spark partitioned output  
+raw/  
+curated/  
+curated_parquet/  
+glue_output/  
+glue_output_partitioned/  
 
-raw_ais/ — real AIS dataset  
-curated_ais_parquet/ — curated AIS dataset (daily partitions)  
-curated_ais_parquet_hour/ — curated AIS dataset (hourly partitions)
+raw_ais/  
+curated_ais_parquet/  
+curated_ais_parquet_hour/  
+
+analytics_vessel_hourly/  
 
 ---
 
-## Real AIS Dataset
+## Raw AIS Dataset
 
-The pipeline processes Automatic Identification System (AIS) vessel tracking data.
-
-Important columns:
+Important fields:
 
 - mmsi — unique vessel identifier
-- base_date_time — AIS message timestamp
+- base_date_time — AIS timestamp
 - longitude / latitude — vessel position
 - sog — speed over ground (knots)
 
-AIS data is used by:
-
-- port authorities
-- shipping companies
-- maritime surveillance systems
-- logistics and fleet monitoring
+AIS data is widely used by port authorities, shipping companies, maritime surveillance systems, and logistics monitoring platforms.
 
 ---
 
-## Raw Data Ingestion
+## Data Engineering Pipeline
 
-The AIS dataset is uploaded to:
+The raw AIS CSV data is ingested into Amazon S3 and queried using Athena external tables.
 
-s3://andre-geo-platform-dev/raw_ais/
-
-Example file:
-
-ais-2025-01-01.csv
-
-An Athena external table reads the CSV using schema-on-read.
-
----
-
-## CSV → Parquet Transformation
-
-The raw CSV dataset is converted to Parquet using Athena CTAS.
-
-Benefits:
+To optimize analytics performance, the dataset is converted to Parquet format using Athena CTAS, enabling:
 
 - columnar storage
-- better compression
+- compression
 - faster queries
-- lower Athena cost
-
-Example:
-
-CREATE TABLE curated_ais_from_raw_parquet
-WITH (
-  format = 'PARQUET',
-  external_location = 's3://andre-geo-platform-dev/curated_ais_parquet/',
-  partitioned_by = ARRAY['dt']
-) AS
-SELECT
-  mmsi,
-  base_date_time AS timestamp,
-  longitude AS lon,
-  latitude AS lat,
-  sog,
-  substr(base_date_time, 1, 10) AS dt
-FROM raw_ais;
+- lower query cost
 
 ---
 
 ## Partition Strategy
 
-Because the dataset initially contained one day of data, hourly partitioning was used:
-
-dt_hour = 2025-01-01 10
-
-Structure:
-
-curated_ais_parquet_hour/
-dt_hour=2025-01-01 00/
-dt_hour=2025-01-01 01/
-...
-dt_hour=2025-01-01 23/
-
-This enables partition pruning in Athena.
+The dataset is partitioned by hour (dt_hour).
 
 Example:
 
-SELECT *
-FROM curated_ais_from_raw_parquet_hour
-WHERE dt_hour = '2025-01-01 10';
+curated_ais_parquet_hour/
 
-Athena reads only one partition instead of the entire dataset.
+dt_hour=2025-01-01 00/  
+dt_hour=2025-01-01 01/  
+...  
+dt_hour=2025-01-01 23/
+
+Partitioning enables Athena partition pruning so only relevant partitions are scanned during queries.
 
 ---
 
 ## Analytics Layer
 
-An aggregated analytics table was created:
+An analytics table was created:
 
 analytics_vessel_hourly
 
-Metrics calculated per hour:
+Metrics computed per hour:
 
-- n_points — number of AIS messages
-- n_vessels — unique vessels observed
-- avg_sog — average vessel speed
-- p50_sog — median vessel speed
-- p90_sog — high-speed percentile
-- n_stopped_points — AIS messages where vessel speed < 0.5 knots
+- number of AIS points
+- number of active vessels
+- average vessel speed
+- speed percentiles
+- number of stopped vessels
 
-Example query:
+Example insight:
 
-SELECT dt_hour, n_vessels
-FROM analytics_vessel_hourly
-ORDER BY dt_hour;
+Approximately 71–79% of AIS messages correspond to vessels with speed < 0.5 knots, consistent with maritime operational patterns where ships spend long periods anchored or in port.
 
 ---
 
-## Traffic Analysis Results
+## Anomaly Detection
 
-Example:
+Three anomaly detection strategies were implemented.
 
-Hour: 06:00  
-Vessels: ~12,500  
-Average speed: ~1.7 knots  
+### Speed anomalies
 
-Key insight:
+Detect vessels reporting unrealistic speeds:
 
-Approximately 71%–79% of AIS messages correspond to stopped vessels (speed < 0.5 knots).
+sog > 40 knots
 
-This is consistent with maritime operations where ships spend significant time anchored or in port.
+### Vessel-level anomaly summary
+
+Anomalies are aggregated per vessel to avoid counting repeated messages.
+
+### Trajectory jump detection
+
+Using SQL window functions (LAG), the system computes movement between consecutive AIS points:
+
+distance / time
+
+This allows detection of impossible trajectory jumps indicating corrupted AIS data.
 
 ---
 
-## Example Analytics Queries
+## Feature Engineering
 
-### Vessel activity per hour
+A feature dataset was created with one row per vessel:
 
-SELECT dt_hour, n_vessels
-FROM analytics_vessel_hourly
-ORDER BY dt_hour;
+vessel_behavior_features
 
-### Stopped vessel ratio
+Features:
 
-SELECT
-dt_hour,
-CAST(n_stopped_points AS DOUBLE)/n_points AS stopped_ratio
-FROM analytics_vessel_hourly
-ORDER BY dt_hour;
+- n_points
+- avg_sog
+- max_sog
+- stopped_ratio
+- speed_anomaly_points
 
-### Top vessels by AIS messages
+Dataset statistics:
 
-SELECT
-mmsi,
-COUNT(*) AS n_points
-FROM curated_ais_from_raw_parquet_hour
-GROUP BY mmsi
-ORDER BY n_points DESC
-LIMIT 20;
+- 16,286 vessels
+- ~450 AIS points per vessel on average
+- average stopped ratio ≈ 0.74
+
+---
+
+## Vessel Behavior Clustering
+
+Vessels were grouped into behavioral clusters based on movement patterns.
+
+Cluster results:
+
+| Cluster | Vessels |
+|---|---|
+anchored_vessels | 9648 |
+normal_traffic | 4008 |
+slow_movers | 2034 |
+other | 575 |
+anomalous_vessels | 21 |
+
+Interpretation:
+
+- Anchored vessels (~59%) represent ships in ports or anchorage areas.
+- Normal traffic (~25%) corresponds to regular commercial shipping activity.
+- Slow movers (~12%) likely include fishing vessels or harbor operations.
+- Anomalous vessels (~0.1%) represent corrupted AIS records or unusual vessel behavior.
 
 ---
 
 ## Key Data Engineering Concepts Demonstrated
 
-- Data lake architecture (S3)
+- Data lake architecture
 - Schema-on-read analytics
-- CSV → Parquet optimization
-- Partitioned datasets
+- Columnar storage optimization
 - Partition pruning
-- Serverless analytics with Athena
+- Serverless data analytics
+- Reproducible SQL pipelines
 
 ---
 
-## Repository Structure
+## Key Data Science Concepts Demonstrated
 
-docs/
-runbook_v2.md
-
-sql/
-11_create_raw_ais_table.sql
-12_ctas_curated_ais_parquet.sql
-13_ctas_curated_ais_parquet_hour.sql
-14_perf_compare_hour_partition.sql
-17_stopped_ratio_by_hour.sql
-18_top_vessels_per_hour.sql
-
-src/
-glue/jobs/
-glue_transform.py
-glue_transform_partitioned.py
-glue_transform_partitioned_incremental.py
+- Feature engineering
+- Behavioral clustering
+- Trajectory anomaly detection
+- Maritime traffic analysis
 
 ---
 
 ## Future Improvements
 
-- Maritime traffic visualization
-- Vessel trajectory clustering
-- AIS anomaly detection
-- Incremental ingestion pipelines
+Possible extensions:
+
+- maritime traffic heatmaps
+- vessel trajectory visualization
+- AIS streaming pipeline
+- vessel trajectory prediction
+
+---
