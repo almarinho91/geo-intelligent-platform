@@ -1,160 +1,101 @@
-# Runbook v2 — AWS AIS Data Lake (S3 + Lambda + Athena + Glue/Spark)
+# Runbook — AIS Maritime Data Platform (AWS)
 
-This runbook documents the **end-to-end pipeline** you built to ingest **real AIS data** into an AWS data lake, transform it into **Parquet**, write **partitioned datasets**, and query them with **Athena**.
-
-> Repo goal: keep the project **reproducible**.  
-> Data files stay in S3; the repo stores **scripts + SQL + docs**.
+This runbook describes how to reproduce the AIS data pipeline built for this project.
+The pipeline ingests raw AIS CSV data, transforms it into optimized Parquet datasets,
+performs analytics, detects anomalies, and builds vessel behavior features.
 
 ---
 
-## 0) High-level architecture
+# 1. Architecture Overview
+
+AIS CSV Dataset
+↓
+Amazon S3 (Data Lake)
+↓
+Athena External Table (schema-on-read)
+↓
+CTAS Transformation (CSV → Parquet)
+↓
+Hourly Partitioned Dataset
+↓
+Analytics Tables
+↓
+Feature Engineering
+↓
+Anomaly Detection
+↓
+Behavior Clustering
+
+---
+
+# 2. AWS Resources
+
+## S3 Bucket
+
+Example bucket used in this project:
 
 ```
-(Real AIS CSV) → S3 raw_ais/
-     ↓
-Athena external table (schema-on-read)
-     ↓
-Athena CTAS → Parquet (partitioned by dt or dt_hour)
-     ↓
-Glue (Spark) ETL jobs (optional / for advanced transforms)
-     ↓
-Athena external tables on analytics datasets
+andre-geo-platform-dev
+```
+
+Important folders:
+
+```
+raw_ais/
+curated_ais_parquet/
+curated_ais_parquet_hour/
+analytics_vessel_hourly/
 ```
 
 ---
 
-## 1) AWS resources
+# 3. Upload Raw AIS Data
 
-### S3 bucket
-- `andre-geo-platform-dev`
+Upload the AIS CSV file to:
 
-### S3 layout (current)
-- `raw/` — small demo CSVs (toy data)
-- `curated/` — Lambda outputs (toy)
-- `curated_parquet/` — Athena CTAS outputs (toy)
-- `glue_output/` — Glue/Spark output (toy)
-- `glue_output_partitioned/` — Glue/Spark output partitioned (toy)
-- `raw_ais/` — **real AIS CSV** (750 MB+)
-- `curated_ais_parquet/` — curated AIS Parquet (day partition)
-- `curated_ais_parquet_hour/` — curated AIS Parquet (**hour partition**)
-
-### Lambda
-- Function: `geo-platform-s3-test`
-- Trigger: S3 event on `raw/` (toy pipeline)
-- Purpose: add derived field `speed_category`, write to `curated/`
-
-### Glue / Spark
-- Role: `geo-platform-glue-role`
-- Jobs: used for Spark batch processing (toy pipeline)
-- Outputs: `glue_output/`, `glue_output_partitioned/`
-
-### Athena / Glue Data Catalog
-- Database: `geo_platform`
-- Tables are **metadata** only; data lives in S3.
-
----
-
-## 2) Real AIS dataset ingestion (AWS-only)
-
-### 2.1 Upload raw AIS CSV
-Upload your AIS CSV to:
-
-- `s3://andre-geo-platform-dev/raw_ais/`
+```
+s3://andre-geo-platform-dev/raw_ais/
+```
 
 Example:
-- `raw_ais/ais-2025-01-01.csv`
+
+```
+ais-2025-01-01.csv
+```
 
 ---
 
-### 2.2 Create Athena external table on raw AIS (tolerant to blanks)
+# 4. Create Athena External Table
 
-Run `sql/11_create_raw_ais_table.sql` (or paste in Athena):
+Create the raw AIS table:
 
 ```sql
-CREATE EXTERNAL TABLE IF NOT EXISTS raw_ais (
+CREATE EXTERNAL TABLE raw_ais (
   mmsi BIGINT,
   base_date_time STRING,
   longitude DOUBLE,
   latitude DOUBLE,
-  sog DOUBLE,
-  cog DOUBLE,
-  heading DOUBLE,
-  vessel_name STRING,
-  imo STRING,
-  call_sign STRING,
-  vessel_type INT,
-  status DOUBLE,
-  length DOUBLE,
-  width DOUBLE,
-  draft DOUBLE,
-  cargo DOUBLE,
-  transceiver STRING
+  sog DOUBLE
 )
 ROW FORMAT SERDE 'org.apache.hadoop.hive.serde2.OpenCSVSerde'
-WITH SERDEPROPERTIES (
-  'separatorChar' = ',',
-  'quoteChar' = '"'
-)
-LOCATION 's3://andre-geo-platform-dev/raw_ais/'
-TBLPROPERTIES (
-  'skip.header.line.count'='1',
-  'use.null.for.invalid.data'='true'
-);
+LOCATION 's3://andre-geo-platform-dev/raw_ais/';
 ```
 
-Quick check:
+Verify ingestion:
 
 ```sql
-SELECT COUNT(*) FROM raw_ais;
-SELECT * FROM raw_ais LIMIT 10;
-```
-
----
-
-## 3) Curated Parquet (recommended)
-
-### 3.1 Day partition (dt)
-Use when you have multiple days of data.
-
-Run `sql/12_ctas_curated_ais_parquet.sql`:
-
-```sql
-CREATE TABLE curated_ais_from_raw_parquet
-WITH (
-  format = 'PARQUET',
-  external_location = 's3://andre-geo-platform-dev/curated_ais_parquet/',
-  partitioned_by = ARRAY['dt']
-) AS
-SELECT
-  mmsi,
-  base_date_time AS timestamp,
-  longitude AS lon,
-  latitude AS lat,
-  sog,
-  substr(base_date_time, 1, 10) AS dt
+SELECT *
 FROM raw_ais
-WHERE mmsi IS NOT NULL
-  AND base_date_time IS NOT NULL
-  AND longitude IS NOT NULL
-  AND latitude IS NOT NULL
-  AND sog IS NOT NULL;
-```
-
-Validate:
-
-```sql
-SELECT dt, COUNT(*) AS n_rows
-FROM curated_ais_from_raw_parquet
-GROUP BY dt
-ORDER BY dt;
+LIMIT 10;
 ```
 
 ---
 
-### 3.2 Hour partition (dt_hour) — best for single-day datasets
-If you ingest only one day (like your `2025-01-01` file), **partition by hour**.
+# 5. Convert CSV → Parquet
 
-Run `sql/13_ctas_curated_ais_parquet_hour.sql`:
+Use Athena CTAS to optimize the dataset.
+
+Example:
 
 ```sql
 CREATE TABLE curated_ais_from_raw_parquet_hour
@@ -170,76 +111,185 @@ SELECT
   latitude AS lat,
   sog,
   substr(base_date_time, 1, 13) AS dt_hour
-FROM raw_ais
-WHERE mmsi IS NOT NULL
-  AND base_date_time IS NOT NULL
-  AND longitude IS NOT NULL
-  AND latitude IS NOT NULL
-  AND sog IS NOT NULL;
+FROM raw_ais;
 ```
 
-Validate partitions (expect ~24):
+Benefits:
+
+- columnar storage
+- compression
+- faster queries
+- lower Athena cost
+
+---
+
+# 6. Validate Partitioning
+
+Example query:
 
 ```sql
-SELECT dt_hour, COUNT(*) AS n_rows
+SELECT *
+FROM curated_ais_from_raw_parquet_hour
+WHERE dt_hour = '2025-01-01 10'
+LIMIT 10;
+```
+
+Athena scans only the relevant partition.
+
+---
+
+# 7. Build Analytics Layer
+
+Create aggregated vessel metrics.
+
+Example:
+
+```sql
+SELECT
+  dt_hour,
+  COUNT(*) AS n_points,
+  COUNT(DISTINCT mmsi) AS n_vessels,
+  AVG(sog) AS avg_speed
 FROM curated_ais_from_raw_parquet_hour
 GROUP BY dt_hour
 ORDER BY dt_hour;
 ```
 
-Performance proof (partition pruning):
+Example insight:
+
+Most AIS messages correspond to vessels with speed < 0.5 knots,
+indicating vessels anchored or waiting in port.
+
+---
+
+# 8. Detect Speed Anomalies
+
+Speed anomaly rule:
 
 ```sql
--- scans all partitions
-SELECT SUM(sog) FROM curated_ais_from_raw_parquet_hour;
-
--- scans a single partition
-SELECT SUM(sog)
+SELECT *
 FROM curated_ais_from_raw_parquet_hour
-WHERE dt_hour = '2025-01-01 10';
+WHERE sog > 40;
+```
+
+This identifies vessels reporting unrealistic speeds.
+
+---
+
+# 9. Trajectory Anomaly Detection
+
+Trajectory anomalies are detected using window functions.
+
+Example:
+
+```sql
+LAG(timestamp) OVER (PARTITION BY mmsi ORDER BY timestamp)
+```
+
+This allows comparison of consecutive vessel positions.
+
+Steps:
+
+1. Retrieve previous AIS point
+2. Compute time difference
+3. Estimate movement distance
+4. Flag unrealistic jumps
+
+Example anomaly:
+
+A vessel appearing hundreds of kilometers away within one second,
+indicating corrupted AIS data.
+
+---
+
+# 10. Create Vessel Behavior Feature Table
+
+Create ML-ready features:
+
+```sql
+CREATE TABLE vessel_behavior_features AS
+SELECT
+  mmsi,
+  COUNT(*) AS n_points,
+  AVG(sog) AS avg_sog,
+  MAX(sog) AS max_sog,
+  SUM(CASE WHEN sog < 0.5 THEN 1 ELSE 0 END) AS stopped_points
+FROM curated_ais_from_raw_parquet_hour
+GROUP BY mmsi;
+```
+
+Derived feature:
+
+```
+stopped_ratio = stopped_points / n_points
 ```
 
 ---
 
-## 4) Toy pipeline (small CSVs) — still kept for portfolio completeness
+# 11. Vessel Behavior Clustering
 
-### 4.1 Upload a demo CSV
-Upload to:
-- `s3://andre-geo-platform-dev/raw/`
+Rule-based clusters:
 
-Lambda trigger writes:
-- `s3://andre-geo-platform-dev/curated/<name>_processed.csv`
+| Cluster | Description |
+|------|------|
+anchored_vessels | mostly stopped |
+normal_traffic | typical vessel speeds |
+slow_movers | slow moving vessels |
+anomalous_vessels | vessels with speed anomalies |
 
-### 4.2 Athena on curated (toy)
-- `sql/00_create_schema.sql`
-- `sql/01_preview.sql`, `sql/02_speed_distribution.sql`
+Example query:
 
-### 4.3 CTAS → Parquet (toy)
-- `sql/03_create_parquet_table.sql`
-
-### 4.4 Glue/Spark jobs (toy)
-Repo scripts:
-- `src/glue/jobs/glue_transform.py`
-- `src/glue/jobs/glue_transform_partitioned.py`
-- `src/glue/jobs/glue_transform_partitioned_incremental.py` (append + dedup)
-
-Athena table on Spark output (toy):
-- `sql/08_create_athena_table_glue_output_partitioned.sql`
-- `sql/09_repair_partitions.sql`
-- `sql/10_counts_by_dt.sql`
+```sql
+SELECT
+  vessel_behavior_cluster,
+  COUNT(*)
+FROM vessel_behavior_features
+GROUP BY vessel_behavior_cluster;
+```
 
 ---
 
-## 5) Quick troubleshooting
+# 12. Dataset Statistics
 
-### Athena shows 0 rows
-- Check that files are directly under the S3 `LOCATION` (no extra subfolders).
+Example results from the dataset:
 
-### BAD_DATA / NumberFormatException (empty string in numeric columns)
-- Ensure table property: `'use.null.for.invalid.data'='true'`
+- ~16,286 vessels
+- ~450 AIS messages per vessel (average)
+- ~74% of messages represent stopped vessels
+- only ~21 vessels exhibit strong anomaly behavior
 
-### CTAS fails with HIVE_PATH_ALREADY_EXISTS
-- Athena CTAS won’t overwrite existing S3 data.
-- Delete the target folder contents in S3 or change `external_location`.
+---
+
+# 13. Repository Workflow
+
+Typical workflow:
+
+1. Upload raw data
+2. Create external table
+3. Convert to Parquet
+4. Build analytics tables
+5. Run anomaly detection
+6. Generate behavior features
+7. Perform clustering
+
+---
+
+# 14. Reproducibility
+
+All SQL scripts required to reproduce the pipeline are stored in:
+
+```
+sql/
+```
+
+Key scripts:
+
+```
+26_create_vessel_behavior_features.sql
+27_feature_distribution_summary.sql
+28_top_vessel_activity.sql
+29_vessel_behavior_clusters.sql
+30_cluster_counts.sql
+```
 
 ---
