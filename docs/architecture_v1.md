@@ -10,30 +10,7 @@ Data Engineering + Data Science workflow built on AWS.
 
 The platform processes vessel trajectory data from raw ingestion to behavioral insights.
 
-AIS CSV Dataset
-        │
-        ▼
-Amazon S3 Data Lake
-        │
-        ▼
-Athena External Tables (schema-on-read)
-        │
-        ▼
-CTAS Transformation (CSV → Parquet)
-        │
-        ▼
-Partitioned Dataset (dt_hour)
-        │
-        ▼
-Analytics Layer (vessel traffic metrics)
-        │
-        ▼
-Feature Engineering (vessel_behavior_features)
-        │
-        ▼
-Anomaly Detection
-        │
-        ▼
+AIS CSV Dataset -> Amazon S3 Data Lake -> Athena External Tables (schema-on-read) -> CTAS Transformation (CSV → Parquet) -> Partitioned Dataset (dt_hour) -> Analytics Layer (vessel traffic metrics) -> Feature Engineering (vessel_behavior_features) -> Anomaly Detection -> 
 Vessel Behavior Clustering
 
 ---
